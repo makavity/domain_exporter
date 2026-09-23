@@ -56,6 +56,7 @@ type rdapClient struct{}
 
 type directRDAPResponse struct {
 	Events []directRDAPEvent `json:"events"`
+	Status []string          `json:"status"`
 }
 
 type directRDAPEvent struct {
@@ -68,10 +69,10 @@ func NewClient() client.Client {
 	return rdapClient{}
 }
 
-func (rdapClient) ExpireTime(ctx context.Context, domain string, host string) (time.Time, error) {
+func (rdapClient) Lookup(ctx context.Context, domain string, host string) (client.Result, error) {
 	log.Debug().Msgf("trying rdap client for %s", domain)
 	if hasDirectEndpoint(domain) {
-		return lookupDirectExpireTime(ctx, domain)
+		return lookupDirect(ctx, domain)
 	}
 
 	req := &rdap.Request{
@@ -80,18 +81,19 @@ func (rdapClient) ExpireTime(ctx context.Context, domain string, host string) (t
 	}
 	req = req.WithContext(ctx)
 
-	client := &rdap.Client{}
-	resp, err := client.Do(req)
+	cli := &rdap.Client{}
+	resp, err := cli.Do(req)
 	if err != nil {
-		return time.Now(), fmt.Errorf("failed to do rdap request: %w", err)
+		return client.Result{Expiry: time.Now()}, fmt.Errorf("failed to do rdap request: %w", err)
 	}
 
 	body, ok := resp.Object.(*rdap.Domain)
 	if !ok {
-		return time.Now(), fmt.Errorf("failed to cast rdap domain object: %w", err)
+		return client.Result{Expiry: time.Now()}, fmt.Errorf("failed to cast rdap domain object: %w", err)
 	}
 
-	return extractExpirationFromRdapEvents(body.Events, domain)
+	expiry, err := extractExpirationFromRdapEvents(body.Events, domain)
+	return client.Result{Expiry: expiry, Statuses: client.EPPStatuses(body.Status)}, err
 }
 
 func hasDirectEndpoint(domain string) bool {
@@ -109,33 +111,34 @@ func directRDAPEndpoint(domain string) (string, bool) {
 	return endpoint, ok
 }
 
-func lookupDirectExpireTime(ctx context.Context, domain string) (time.Time, error) {
+func lookupDirect(ctx context.Context, domain string) (client.Result, error) {
 	endpoint, ok := directRDAPEndpoint(domain)
 	if !ok {
-		return time.Time{}, fmt.Errorf("no direct rdap endpoint for domain: %s", domain)
+		return client.Result{}, fmt.Errorf("no direct rdap endpoint for domain: %s", domain)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint+url.PathEscape(domain), nil)
 	if err != nil {
-		return time.Time{}, fmt.Errorf("failed to create direct rdap request: %w", err)
+		return client.Result{}, fmt.Errorf("failed to create direct rdap request: %w", err)
 	}
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return time.Time{}, fmt.Errorf("failed to do direct rdap request: %w", err)
+		return client.Result{}, fmt.Errorf("failed to do direct rdap request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return time.Time{}, fmt.Errorf("unexpected direct rdap status: %s", resp.Status)
+		return client.Result{}, fmt.Errorf("unexpected direct rdap status: %s", resp.Status)
 	}
 
 	var body directRDAPResponse
 	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
-		return time.Time{}, fmt.Errorf("failed to decode direct rdap response: %w", err)
+		return client.Result{}, fmt.Errorf("failed to decode direct rdap response: %w", err)
 	}
 
-	return extractExpirationFromDirectEvents(body.Events, domain)
+	expiry, err := extractExpirationFromDirectEvents(body.Events, domain)
+	return client.Result{Expiry: expiry, Statuses: client.EPPStatuses(body.Status)}, err
 }
 
 func extractExpirationFromDirectEvents(events []directRDAPEvent, domain string) (time.Time, error) {

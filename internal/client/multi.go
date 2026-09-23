@@ -2,21 +2,20 @@ package client
 
 import (
 	"context"
-	"time"
 )
 
 type multiClient []Client
 
-func (clients multiClient) ExpireTime(ctx context.Context, domain string, host string) (time.Time, error) {
-	var t time.Time
+func (clients multiClient) Lookup(ctx context.Context, domain string, host string) (Result, error) {
+	var res Result
 	var err error
 	for _, client := range clients {
-		t, err = client.ExpireTime(ctx, domain, host)
+		res, err = client.Lookup(ctx, domain, host)
 		if err == nil {
 			break
 		}
 	}
-	return t, err
+	return res, err
 }
 
 // NewMultiClient returns a client that wraps multiple clients.

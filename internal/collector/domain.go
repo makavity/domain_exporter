@@ -19,6 +19,7 @@ type domainCollector struct {
 	timeout time.Duration
 
 	expiryDays    *prometheus.Desc
+	eppStatus     *prometheus.Desc
 	probeSuccess  *prometheus.Desc
 	probeDuration *prometheus.Desc
 }
@@ -35,6 +36,12 @@ func NewDomainCollector(client client.Client, timeout time.Duration, domains ...
 			prometheus.BuildFQName(namespace, subsystem, "expiry_days"),
 			"time in days until the domain expires",
 			[]string{"domain"},
+			nil,
+		),
+		eppStatus: prometheus.NewDesc(
+			prometheus.BuildFQName(namespace, subsystem, "epp_status"),
+			"EPP status codes of the domain, 1 for each status currently set",
+			[]string{"domain", "status"},
 			nil,
 		),
 		probeSuccess: prometheus.NewDesc(
@@ -55,6 +62,7 @@ func NewDomainCollector(client client.Client, timeout time.Duration, domains ...
 // Describe all metrics
 func (c *domainCollector) Describe(ch chan<- *prometheus.Desc) {
 	ch <- c.expiryDays
+	ch <- c.eppStatus
 	ch <- c.probeDuration
 	ch <- c.probeSuccess
 }
@@ -69,7 +77,7 @@ func (c *domainCollector) Collect(ch chan<- prometheus.Metric) {
 
 	for _, domain := range c.domains {
 		start := time.Now()
-		date, err := c.client.ExpireTime(ctx, domain.Name, domain.Host)
+		res, err := c.client.Lookup(ctx, domain.Name, domain.Host)
 		if err != nil {
 			log.Error().Err(err).Msgf("failed to probe %s", domain)
 		}
@@ -84,9 +92,12 @@ func (c *domainCollector) Collect(ch chan<- prometheus.Metric) {
 		ch <- prometheus.MustNewConstMetric(
 			c.expiryDays,
 			prometheus.GaugeValue,
-			math.Floor(time.Until(date).Hours()/24),
+			math.Floor(time.Until(res.Expiry).Hours()/24),
 			domain.Name,
 		)
+		for _, status := range res.Statuses {
+			ch <- prometheus.MustNewConstMetric(c.eppStatus, prometheus.GaugeValue, 1, domain.Name, status)
+		}
 		ch <- prometheus.MustNewConstMetric(
 			c.probeDuration,
 			prometheus.GaugeValue,

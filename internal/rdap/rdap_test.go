@@ -33,10 +33,10 @@ func TestRdapParsing(t *testing.T) {
 	} {
 		t.Run(tt.domain, func(t *testing.T) {
 			t.Parallel()
-			expiry, err := NewClient().ExpireTime(context.Background(), tt.domain, "")
+			res, err := NewClient().Lookup(context.Background(), tt.domain, "")
 			if tt.err == "" {
 				require.NoError(t, err)
-				require.Less(t, time.Since(expiry).Hours(), 0.0)
+				require.Less(t, time.Since(res.Expiry).Hours(), 0.0)
 			} else {
 				require.ErrorContains(t, err, tt.err)
 			}

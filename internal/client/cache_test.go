@@ -14,14 +14,14 @@ type testClient struct {
 	result *time.Time
 }
 
-func (f testClient) ExpireTime(_ context.Context, _ string, _ string) (time.Time, error) {
-	return *f.result, nil
+func (f testClient) Lookup(_ context.Context, _ string, _ string) (Result, error) {
+	return Result{Expiry: *f.result}, nil
 }
 
 type errTestClient struct{}
 
-func (f errTestClient) ExpireTime(_ context.Context, _ string, _ string) (time.Time, error) {
-	return time.Now(), fmt.Errorf("failed to get domain info blah")
+func (f errTestClient) Lookup(_ context.Context, _ string, _ string) (Result, error) {
+	return Result{Expiry: time.Now()}, fmt.Errorf("failed to get domain info blah")
 }
 
 func TestCachedClient(t *testing.T) {
@@ -35,9 +35,9 @@ func TestCachedClient(t *testing.T) {
 
 	// test getting from out fake client
 	t.Run("get fresh", func(t *testing.T) {
-		res, err := cli.ExpireTime(ctx, domain, host)
+		res, err := cli.Lookup(ctx, domain, host)
 		require.NoError(t, err)
-		require.Equal(t, expected, res)
+		require.Equal(t, expected, res.Expiry)
 	})
 
 	// here we change the inner fake client result, but the result
@@ -45,28 +45,28 @@ func TestCachedClient(t *testing.T) {
 	t.Run("get from cache", func(t *testing.T) {
 		oldExpected := expected
 		expected = time.Now()
-		res, err := cli.ExpireTime(ctx, domain, host)
+		res, err := cli.Lookup(ctx, domain, host)
 		require.NoError(t, err)
-		require.Equal(t, oldExpected, res)
+		require.Equal(t, oldExpected, res.Expiry)
 	})
 
 	// here we flush the cache and verify that the result is the one
 	// from the fake client
 	t.Run("flush cache", func(t *testing.T) {
 		cache.Flush()
-		res, err := cli.ExpireTime(ctx, domain, host)
+		res, err := cli.Lookup(ctx, domain, host)
 		require.NoError(t, err)
-		require.Equal(t, expected, res)
+		require.Equal(t, expected, res.Expiry)
 	})
 
 	t.Run("do not cache errors", func(t *testing.T) {
 		cache.Flush()
 
 		cli := NewCachedClient(errTestClient{}, cache)
-		_, err := cli.ExpireTime(ctx, domain, host)
+		_, err := cli.Lookup(ctx, domain, host)
 		require.Error(t, err)
 
-		_, err = cli.ExpireTime(ctx, domain, host)
+		_, err = cli.Lookup(ctx, domain, host)
 		require.Error(t, err)
 
 		cached, got := cache.Get(domain)

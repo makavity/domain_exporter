@@ -48,7 +48,7 @@ func (r Refresher) Refresh(ctx context.Context) {
 	defer cancel()
 
 	for _, domain := range r.domains {
-		if _, err := r.client.ExpireTime(ctx, domain.Name, domain.Host); err != nil {
+		if _, err := r.client.Lookup(ctx, domain.Name, domain.Host); err != nil {
 			log.Error().Err(err).Msgf("failed to get expire time for %s", domain)
 		}
 	}

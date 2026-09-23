@@ -66,7 +66,7 @@ func TestWhoisParsing(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			t.Cleanup(cancel)
 
-			expiry, err := NewClient().ExpireTime(ctx, tt.domain, tt.host)
+			res, err := NewClient().Lookup(ctx, tt.domain, tt.host)
 			if err != nil {
 				errs := err.Error()
 				if strings.Contains(errs, "i/o timeout") {
@@ -79,9 +79,9 @@ func TestWhoisParsing(t *testing.T) {
 			if tt.err == "" {
 				require.NoError(t, err)
 				if tt.expired {
-					require.Greater(t, time.Since(expiry).Hours(), 0.0)
+					require.Greater(t, time.Since(res.Expiry).Hours(), 0.0)
 				} else {
-					require.Less(t, time.Since(expiry).Hours(), 0.0)
+					require.Less(t, time.Since(res.Expiry).Hours(), 0.0)
 				}
 			} else {
 				require.ErrorContains(t, err, tt.err)
@@ -89,4 +89,15 @@ func TestWhoisParsing(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestParseStatuses(t *testing.T) {
+	body := `Domain Name: EXAMPLE.COM
+Domain Status: clientDeleteProhibited https://icann.org/epp#clientDeleteProhibited
+Domain Status: clientTransferProhibited https://icann.org/epp#clientTransferProhibited
+Registration status: something
+Domain status : ok - normal state.
+state: REGISTERED, DELEGATED
+`
+	require.Equal(t, []string{"clientDeleteProhibited", "clientTransferProhibited", "ok"}, parseStatuses(body))
 }
